@@ -26,6 +26,7 @@ export const ChatbotView: React.FC<ChatbotViewProps> = ({ apiKey }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState<string | null>(null); // message ID
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'transcribing'>('idle');
+  const [inputError, setInputError] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -117,8 +118,9 @@ export const ChatbotView: React.FC<ChatbotViewProps> = ({ apiKey }) => {
         } else {
             setIsSpeaking(null);
         }
-    } catch (error) {
+    } catch (error: any) {
         console.error("TTS Error:", error);
+        alert(`Text-to-speech failed: ${error.message || 'Could not generate audio.'}`);
         setIsSpeaking(null);
     }
   };
@@ -166,12 +168,13 @@ export const ChatbotView: React.FC<ChatbotViewProps> = ({ apiKey }) => {
         sources,
       };
       setMessages(prev => [...prev, modelMessage]);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error sending message:', error);
       const errorMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        text: 'Sorry, I encountered an error. Please try again.'
+        text: `Sorry, an error occurred: ${error.message || 'Please try again.'}`,
+        isError: true,
       };
       setMessages(prev => [...prev, errorMessage]);
     } finally {
@@ -186,6 +189,7 @@ export const ChatbotView: React.FC<ChatbotViewProps> = ({ apiKey }) => {
   }, []);
 
   const startRecording = useCallback(async () => {
+    setInputError(null);
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
@@ -211,8 +215,9 @@ export const ChatbotView: React.FC<ChatbotViewProps> = ({ apiKey }) => {
                     ]}
                 });
                 setInput(prev => (prev ? prev + ' ' : '') + response.text);
-            } catch (err) {
+            } catch (err: any) {
                 console.error("Transcription error:", err);
+                setInputError(`Transcription failed: ${err.message || 'Please try again.'}`);
             } finally {
                 setRecordingState('idle');
             }
@@ -220,8 +225,9 @@ export const ChatbotView: React.FC<ChatbotViewProps> = ({ apiKey }) => {
 
         mediaRecorder.start();
         setRecordingState('recording');
-    } catch (err) {
+    } catch (err: any) {
         console.error("Microphone access error:", err);
+        setInputError("Microphone access denied. Please grant permission to use voice input.");
         setRecordingState('idle');
     }
   }, [ai]);
@@ -240,10 +246,16 @@ export const ChatbotView: React.FC<ChatbotViewProps> = ({ apiKey }) => {
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`rounded-2xl px-4 py-3 max-w-lg shadow-md ${msg.role === 'user' ? 'bg-cyan-600 rounded-br-none' : 'bg-gray-700 rounded-bl-none'}`}>
+            <div className={`rounded-2xl px-4 py-3 max-w-lg shadow-md ${
+                msg.role === 'user'
+                  ? 'bg-cyan-600 rounded-br-none'
+                  : msg.isError
+                  ? 'bg-red-800 border border-red-600 rounded-bl-none'
+                  : 'bg-gray-700 rounded-bl-none'
+              }`}>
               {msg.image && <img src={msg.image} alt="User upload" className="rounded-lg mb-2 max-h-48" />}
               <p className="text-white whitespace-pre-wrap">{msg.text}</p>
-              {msg.role === 'model' && msg.text && (
+              {msg.role === 'model' && msg.text && !msg.isError && (
                   <button onClick={() => handleSpeak(msg.text, msg.id)} disabled={isSpeaking && isSpeaking !== msg.id} className="text-cyan-300 hover:text-cyan-100 disabled:text-gray-500 mt-2">
                       {isSpeaking === msg.id ? (
                         <svg className="w-5 h-5 animate-pulse" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4 18h3V6H4v12zm5 0h3V6H9v12zm5 0h3V6h-3v12zm5 0h3V6h-3v12z"/></svg>
@@ -302,7 +314,10 @@ export const ChatbotView: React.FC<ChatbotViewProps> = ({ apiKey }) => {
           <input
             type="text"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+                setInput(e.target.value);
+                if (inputError) setInputError(null);
+            }}
             placeholder={
                 recordingState === 'recording' ? 'Recording... Press mic to stop' : 
                 recordingState === 'transcribing' ? 'Transcribing...' : 
@@ -315,6 +330,9 @@ export const ChatbotView: React.FC<ChatbotViewProps> = ({ apiKey }) => {
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
           </button>
         </form>
+        {inputError && (
+            <p className="text-red-400 text-sm text-center mt-2">{inputError}</p>
+        )}
       </div>
     </div>
   );

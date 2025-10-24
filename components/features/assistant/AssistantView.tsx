@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, Blob, FunctionDeclaration, Type } from '@google/genai';
 import { Waveform } from './Waveform';
 import { encode, decode, decodeAudioData } from '../../../utils/audio';
+import { ErrorDisplay } from '../../common/Loader';
 
 // FIX: A local interface for `LiveSession` is defined here based on its usage, as it's not exported from the library.
 interface LiveSession {
@@ -14,7 +15,7 @@ interface LiveSession {
 type AssistantState = 'idle' | 'listening' | 'connecting' | 'speaking';
 type Language = 'english' | 'nepali' | 'maithili' | 'hindi';
 
-const BASE_SYSTEM_INSTRUCTION = "You are a friendly and helpful AI assistant from Nepal named Brom (ब्रोम). You are an expert on all things related to Nepal. When asked about news, current events, or any real-time information, use your search tool to provide the most up-to-date answers focusing on Nepal. You can also perform a wide variety of actions including: controlling smart home devices, setting reminders and alarms, managing calendar events, sending messages, getting weather forecasts and directions, playing music, managing lists, translating text, and opening applications on the user's device. Always be helpful and friendly. Respond in ";
+const BASE_SYSTEM_INSTRUCTION = "You are a friendly and helpful AI assistant from Nepal named Brom (ब्रोम). You are an expert on all things related to Nepal. When asked about news, current events, or any real-time information, use your search tool to provide the most up-to-date answers focusing on Nepal. You can also perform a wide variety of actions including: making calls, sending messages, setting alarms, timers, and reminders, managing and checking your calendar, getting weather forecasts and directions, playing music, movies, and TV shows, controlling smart home devices and device settings, managing lists, translating text, and opening applications on the user's device. Always be helpful and friendly. Respond in ";
 
 const LANGUAGE_CONFIGS: Record<Language, { name: string; systemInstruction: string; voice: string }> = {
   english: { name: 'English', systemInstruction: `${BASE_SYSTEM_INSTRUCTION} English.`, voice: 'Zephyr' },
@@ -166,16 +167,79 @@ const launchAppFunctionDeclaration: FunctionDeclaration = {
   },
 };
 
+const makeCallFunctionDeclaration: FunctionDeclaration = {
+    name: 'makeCall',
+    parameters: {
+        type: Type.OBJECT,
+        description: 'Makes a phone call to a specified contact or number.',
+        properties: {
+            contact: { type: Type.STRING, description: 'The name of the contact or the phone number to call.' },
+        },
+        required: ['contact'],
+    },
+};
+
+const setTimerFunctionDeclaration: FunctionDeclaration = {
+    name: 'setTimer',
+    parameters: {
+        type: Type.OBJECT,
+        description: 'Sets a timer for a specified duration.',
+        properties: {
+            duration: { type: Type.STRING, description: 'The duration for the timer, e.g., "5 minutes", "1 hour 30 minutes".' },
+            label: { type: Type.STRING, description: 'An optional label for the timer.' },
+        },
+        required: ['duration'],
+    },
+};
+
+const getCalendarEventsFunctionDeclaration: FunctionDeclaration = {
+  name: 'getCalendarEvents',
+  parameters: {
+    type: Type.OBJECT,
+    description: 'Retrieves events from the user\'s calendar for a specific date.',
+    properties: {
+      date: { type: Type.STRING, description: 'The date to check for events, e.g., "today", "tomorrow". Defaults to "today" if not provided.' },
+    },
+  },
+};
+
+const playVideoFunctionDeclaration: FunctionDeclaration = {
+  name: 'playVideo',
+  parameters: {
+    type: Type.OBJECT,
+    description: 'Plays a TV show or movie.',
+    properties: {
+      title: { type: Type.STRING, description: 'The title of the movie or TV show.' },
+      platform: { type: Type.STRING, description: 'The platform to play on, e.g., "Netflix", "YouTube".' },
+    },
+  },
+};
+
+const controlDeviceSettingsFunctionDeclaration: FunctionDeclaration = {
+  name: 'controlDeviceSettings',
+  parameters: {
+    type: Type.OBJECT,
+    description: 'Adjusts device settings like brightness, Wi-Fi, or Bluetooth.',
+    properties: {
+      setting: { type: Type.STRING, description: 'The setting to change, e.g., "brightness", "wifi", "bluetooth".' },
+      value: { type: Type.STRING, description: 'The value to set, e.g., "50%", "on", "off".' },
+    },
+    required: ['setting', 'value'],
+  },
+};
+
 interface AssistantViewProps {
   apiKey: string;
+  activationMode: 'push-to-talk' | 'automatic';
 }
 
-export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey }) => {
+export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey, activationMode }) => {
   const [state, setState] = useState<AssistantState>('idle');
   const [language, setLanguage] = useState<Language>('nepali');
   const [transcription, setTranscription] = useState<{ user: string, model: string }>({ user: '', model: '' });
   const [systemActions, setSystemActions] = useState<string[]>([]);
   const [micLevel, setMicLevel] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   const sessionPromiseRef = useRef<Promise<LiveSession> | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -186,6 +250,7 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey }) => {
   const analyserNodeRef = useRef<AnalyserNode | null>(null);
   const nextStartTimeRef = useRef(0);
   const outputSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const triedAutoStartRef = useRef(false);
 
   useEffect(() => {
     let animationFrameId: number | null = null;
@@ -324,6 +389,39 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey }) => {
                     console.log(`Attempting to launch app: ${appName} with URL scheme: ${urlScheme}`);
                     window.location.href = urlScheme;
                     break;
+                case 'makeCall':
+                    const { contact } = fc.args;
+                    actionDescription = `📞 Calling ${contact}...`;
+                    console.log(`Simulating making a call to:`, contact);
+                    if (/^[\d\s+-]+$/.test(contact as string)) {
+                        const phoneNumber = (contact as string).replace(/\D/g, '');
+                        window.location.href = `tel:${phoneNumber}`;
+                        actionResult = `Calling ${contact}.`;
+                    } else {
+                        actionResult = `I can only call phone numbers directly. I'll try to find ${contact} in your contacts.`;
+                    }
+                    break;
+                case 'setTimer':
+                    const { duration, label: timerLabel } = fc.args;
+                    actionDescription = `⏳ Timer set for ${duration}${timerLabel ? ` with label "${timerLabel}"` : ''}.`;
+                    console.log(`Simulating setting a timer:`, fc.args);
+                    break;
+                case 'getCalendarEvents':
+                    const { date: eventDate = 'today' } = fc.args;
+                    actionDescription = `🗓️ Checking your calendar for ${eventDate}.`;
+                    actionResult = `You have two events for ${eventDate}: a 'Team Meeting' at 10 AM and 'Project Deadline' at 5 PM.`;
+                    console.log(`Simulating getting calendar events:`, fc.args);
+                    break;
+                case 'playVideo':
+                    const { title: videoTitle, platform } = fc.args;
+                    actionDescription = `🎬 Playing "${videoTitle}"${platform ? ` on ${platform}` : ''}.`;
+                    console.log(`Simulating playing video:`, fc.args);
+                    break;
+                case 'controlDeviceSettings':
+                    const { setting, value } = fc.args;
+                    actionDescription = `⚙️ Setting ${setting} to ${value}.`;
+                    console.log(`Simulating device setting change:`, fc.args);
+                    break;
                 default:
                     actionDescription = `❓ Unknown action attempted: ${fc.name}`;
                     actionResult = "error: unknown function";
@@ -399,6 +497,7 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey }) => {
 
   const startConversation = useCallback(async () => {
     setState('connecting');
+    setError(null);
     setTranscription({ user: '', model: '' });
     setSystemActions([]);
 
@@ -438,7 +537,12 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey }) => {
               playMusicFunctionDeclaration,
               addToListFunctionDeclaration,
               translateTextFunctionDeclaration,
-              launchAppFunctionDeclaration
+              launchAppFunctionDeclaration,
+              makeCallFunctionDeclaration,
+              setTimerFunctionDeclaration,
+              getCalendarEventsFunctionDeclaration,
+              playVideoFunctionDeclaration,
+              controlDeviceSettingsFunctionDeclaration
             ] }
           ],
         },
@@ -489,6 +593,7 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey }) => {
           },
           onerror: (e: ErrorEvent) => {
             console.error('Session error:', e);
+            setError(`A connection error occurred. Please try again.`);
             stopConversation();
           },
           onclose: (e: CloseEvent) => {
@@ -498,11 +603,25 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey }) => {
         },
       });
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to start conversation:', error);
+      if (error.name === 'NotAllowedError' || error.name === 'NotFoundError') {
+        setError("Microphone access is required. Please grant permission and try again.");
+      } else {
+        setError("Could not start the session. Please check your connection and try again.");
+      }
       setState('idle');
     }
   }, [handleServerMessage, stopConversation, language, apiKey]);
+
+  useEffect(() => {
+    // Effect for automatic activation mode
+    if (activationMode === 'automatic' && state === 'idle' && !triedAutoStartRef.current && !error) {
+      triedAutoStartRef.current = true;
+      startConversation();
+    }
+  }, [activationMode, state, startConversation, error]);
+
 
   useEffect(() => {
     return () => {
@@ -511,6 +630,9 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey }) => {
   }, [stopConversation]);
 
   const getButtonState = () => {
+    if (activationMode === 'automatic' && state === 'idle' && !error) {
+       return { text: 'Activating...', icon: 'loader', action: () => {}, disabled: true };
+    }
     switch (state) {
       case 'idle':
         return { text: 'Start Conversation', icon: 'mic', action: startConversation, disabled: false };
@@ -533,7 +655,9 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey }) => {
         <h2 className="text-2xl font-bold text-gray-200 mb-2">AI Assistant</h2>
         <p className="text-gray-400 mb-4 max-w-md">
           {state === 'idle' 
-           ? "Try asking: 'नेपालको पछिल्लो समाचार के छ?' or 'Open Spotify'"
+           ? activationMode === 'automatic'
+             ? "Assistant is activating. Grant microphone permission when prompted."
+             : "Try asking: 'Call 9876543210', 'Set a timer for 5 minutes', or 'Turn Wi-Fi on'"
            : 'तपाईंको कुराकानी प्रगतिमा छ।'}
         </p>
 
@@ -550,6 +674,12 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey }) => {
                 <option key={key} value={key}>{config.name}</option>
               ))}
             </select>
+          </div>
+        )}
+        
+        {error && state === 'idle' && (
+          <div className="w-full max-w-md my-4">
+            <ErrorDisplay message={error} onRetry={startConversation} />
           </div>
         )}
 
@@ -584,7 +714,7 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey }) => {
             disabled={buttonState.disabled}
             className={`z-10 w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out shadow-lg focus:outline-none focus:ring-4 focus:ring-cyan-500/50
               ${state === 'listening' ? 'bg-red-500 hover:bg-red-600' : 'bg-cyan-500 hover:bg-cyan-600'}
-              ${state === 'connecting' ? 'bg-gray-600 cursor-not-allowed' : ''}
+              ${state === 'connecting' || (activationMode === 'automatic' && state === 'idle' && !error) ? 'bg-gray-600 cursor-not-allowed' : ''}
               ${state === 'speaking' ? 'bg-purple-500' : ''}
             `}
           >

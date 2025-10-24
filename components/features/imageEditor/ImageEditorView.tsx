@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { GoogleGenAI, Modality } from '@google/genai';
-import { Loader } from '../../common/Loader';
+import { Loader, ErrorDisplay } from '../../common/Loader';
 import { fileToBase64 } from '../../../utils/video';
 
 type Mode = 'generate' | 'edit';
@@ -91,7 +91,8 @@ export const ImageEditorView: React.FC<ImageEditorViewProps> = ({ apiKey }) => {
         }
     } catch (err: any) {
         console.error('Image operation error:', err);
-        setError(err.message || 'Failed to process image. Please try again.');
+        const message = err.message ? `API Error: ${err.message}` : 'Failed to process image. The service might be unavailable.';
+        setError(message);
     } finally {
         setIsLoading(false);
     }
@@ -145,7 +146,11 @@ export const ImageEditorView: React.FC<ImageEditorViewProps> = ({ apiKey }) => {
             )}
           </div>
         </div>
-        {error && <p className="text-red-400 text-center mt-4">{error}</p>}
+        {error && (
+            <div className="text-center mt-4">
+              <ErrorDisplay message={error} onRetry={handleGenerate} />
+            </div>
+        )}
       </div>
 
       <div className="p-4 bg-gray-900 border-t border-gray-700/50 space-y-4">

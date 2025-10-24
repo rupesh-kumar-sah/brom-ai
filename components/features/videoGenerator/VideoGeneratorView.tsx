@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { GoogleGenAI, GenerateVideosOperation } from '@google/genai';
-import { Loader } from '../../common/Loader';
+import { Loader, ErrorDisplay } from '../../common/Loader';
 import { fileToBase64 } from '../../../utils/video';
 
 type GenerationState = 'idle' | 'generating' | 'polling' | 'success' | 'error';
@@ -62,9 +62,14 @@ export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = () => {
 
     while (!currentOp.done) {
       await new Promise(resolve => setTimeout(resolve, 10000));
-      // Re-create the AI instance for each poll to use the latest key
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      currentOp = await ai.operations.getVideosOperation({ operation: currentOp });
+      try {
+        // Re-create the AI instance for each poll to use the latest key
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        currentOp = await ai.operations.getVideosOperation({ operation: currentOp });
+      } catch (pollError: any) {
+        console.error("Polling failed:", pollError);
+        throw new Error(`Connection lost while checking video status. Please check your connection and try again.`);
+      }
     }
     
     const downloadLink = currentOp.response?.generatedVideos?.[0]?.video?.uri;
@@ -177,7 +182,7 @@ export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = () => {
              <div className="flex flex-col items-center space-y-4">
                 <h3 className="text-xl font-semibold">Video Ready!</h3>
                 <video src={videoUrl} controls autoPlay loop className="w-full max-w-lg rounded-lg shadow-lg"></video>
-                <button onClick={() => { setState('idle'); setVideoUrl(null); setPrompt(''); setImageFile(null); setImagePreview(null); }} className="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">Generate Another Video</button>
+                <button onClick={() => { setState('idle'); setVideoUrl(null); setPrompt(''); setImageFile(null); setImagePreview(null); setError(null); }} className="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">Generate Another Video</button>
              </div>
         ) : isLoading ? (
              <div className="flex flex-col items-center justify-center h-full text-center">
@@ -186,6 +191,15 @@ export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = () => {
              </div>
         ) : (
           <>
+            {error && (
+              <div className="mb-4">
+                {!error.includes('API Key') ? (
+                    <ErrorDisplay message={error} onRetry={handleGenerate} />
+                ) : (
+                    <ErrorDisplay message={error} />
+                )}
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">Starting Image</label>
               <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-600 border-dashed rounded-md">
@@ -214,8 +228,6 @@ export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = () => {
                     <button onClick={() => setAspectRatio('9:16')} className={`px-4 py-2 rounded-md ${aspectRatio === '9:16' ? 'bg-cyan-600' : 'bg-gray-700'}`}>Portrait (9:16)</button>
                  </div>
             </div>
-
-            {error && <p className="text-red-400 text-center">{error}</p>}
           </>
         )}
       </div>

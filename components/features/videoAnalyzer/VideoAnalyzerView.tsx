@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { GoogleGenAI } from '@google/genai';
-import { Loader } from '../../common/Loader';
+import { Loader, ErrorDisplay } from '../../common/Loader';
 import { extractFramesFromVideo } from '../../../utils/video';
 
 interface VideoAnalyzerViewProps {
@@ -65,7 +65,8 @@ export const VideoAnalyzerView: React.FC<VideoAnalyzerViewProps> = ({ apiKey }) 
 
     } catch (err: any) {
       console.error('Video analysis error:', err);
-      setError(err.message || 'Failed to analyze video.');
+      const message = err.message ? `API Error: ${err.message}` : 'An unexpected error occurred. Please check your connection and try again.';
+      setError(message);
     } finally {
       setIsLoading(false);
       setStatusMessage('');
@@ -94,7 +95,11 @@ export const VideoAnalyzerView: React.FC<VideoAnalyzerViewProps> = ({ apiKey }) 
             </div>
           )
         )}
-        {error && <p className="text-red-400 text-center mt-4">{error}</p>}
+        {error && !isLoading && (
+          <div className="mt-6">
+            <ErrorDisplay message={error} onRetry={handleAnalyze} />
+          </div>
+        )}
       </div>
 
       <div className="p-4 bg-gray-900 border-t border-gray-700/50 space-y-4">
