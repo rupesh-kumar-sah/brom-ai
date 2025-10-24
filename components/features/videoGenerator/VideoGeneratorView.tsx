@@ -6,11 +6,9 @@ import { fileToBase64 } from '../../../utils/video';
 type GenerationState = 'idle' | 'generating' | 'polling' | 'success' | 'error';
 type AspectRatio = '16:9' | '9:16';
 
-interface VideoGeneratorViewProps {
-  apiKey: string;
-}
+interface VideoGeneratorViewProps {}
 
-export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = ({ apiKey }) => {
+export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = () => {
   const [prompt, setPrompt] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -19,6 +17,68 @@ export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = ({ apiKey }
   const [statusMessage, setStatusMessage] = useState('');
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // API key management state
+  const [hasSelectedKey, setHasSelectedKey] = useState(false);
+  const [isCheckingKey, setIsCheckingKey] = useState(true);
+
+  // Reusable function to open the key selection dialog
+  const promptForKeySelection = useCallback(async () => {
+    try {
+      await (window as any).aistudio.openSelectKey();
+      // Per guidelines, assume key is selected to handle race conditions.
+      // This ensures the main UI is shown after the initial selection.
+      setHasSelectedKey(true);
+    } catch (e) {
+      console.error("Error opening key selection:", e);
+      // If the initial selection fails, we still assume a key might have been selected
+      // to allow the user to try generating, which will trigger the error flow if needed.
+      setHasSelectedKey(true);
+    }
+  }, []);
+
+
+  // Check for key on mount
+  useEffect(() => {
+    const checkKey = async () => {
+      setIsCheckingKey(true);
+      try {
+        const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+        setHasSelectedKey(hasKey);
+      } catch (e) {
+        console.error("Error checking for API key:", e);
+        setHasSelectedKey(false);
+      } finally {
+        setIsCheckingKey(false);
+      }
+    };
+    checkKey();
+  }, []);
+
+  const pollOperation = useCallback(async (operation: GenerateVideosOperation) => {
+    setStatusMessage('Polling for video status...');
+    setState('polling');
+    let currentOp = operation;
+
+    while (!currentOp.done) {
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      // Re-create the AI instance for each poll to use the latest key
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      currentOp = await ai.operations.getVideosOperation({ operation: currentOp });
+    }
+    
+    const downloadLink = currentOp.response?.generatedVideos?.[0]?.video?.uri;
+    if (downloadLink) {
+        // Must append API key for access
+        const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+        const blob = await response.blob();
+        setVideoUrl(URL.createObjectURL(blob));
+        setState('success');
+        setStatusMessage('Video generated successfully!');
+    } else {
+        throw new Error('Video generation finished but no video URL was found.');
+    }
+  }, []);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -29,30 +89,6 @@ export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = ({ apiKey }
       reader.readAsDataURL(file);
     }
   };
-
-  const pollOperation = useCallback(async (operation: GenerateVideosOperation) => {
-    setStatusMessage('Polling for video status...');
-    setState('polling');
-    let currentOp = operation;
-
-    while (!currentOp.done) {
-      await new Promise(resolve => setTimeout(resolve, 10000));
-      const ai = new GoogleGenAI({ apiKey });
-      currentOp = await ai.operations.getVideosOperation({ operation: currentOp });
-    }
-    
-    const downloadLink = currentOp.response?.generatedVideos?.[0]?.video?.uri;
-    if (downloadLink) {
-        // Must append API key for access
-        const response = await fetch(`${downloadLink}&key=${apiKey}`);
-        const blob = await response.blob();
-        setVideoUrl(URL.createObjectURL(blob));
-        setState('success');
-        setStatusMessage('Video generated successfully!');
-    } else {
-        throw new Error('Video generation finished but no video URL was found.');
-    }
-  }, [apiKey]);
 
   const handleGenerate = async () => {
     if (!imageFile) {
@@ -65,7 +101,8 @@ export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = ({ apiKey }
     setStatusMessage('Starting video generation...');
     
     try {
-      const ai = new GoogleGenAI({ apiKey });
+      // Create a new instance right before the call to ensure the latest key is used.
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const base64Data = await fileToBase64(imageFile);
 
       setStatusMessage('Sending request to Gemini... This may take a moment.');
@@ -86,9 +123,9 @@ export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = ({ apiKey }
 
     } catch (err: any) {
         console.error('Video generation error:', err);
-        // The raw error message is often a stringified JSON.
         let detailedMessage = err.message || 'An unknown error occurred.';
         try {
+          // Error might be a JSON string, try to parse it for a cleaner message.
           const parsed = JSON.parse(detailedMessage);
           if (parsed.error && parsed.error.message) {
             detailedMessage = parsed.error.message;
@@ -97,15 +134,41 @@ export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = ({ apiKey }
           // It wasn't JSON, use the message as is.
         }
         
-        // Check for the specific API key error.
         if (detailedMessage.includes('Requested entity was not found')) {
-            setError('Your selected API Key appears to be invalid or lacks the necessary permissions for the Veo model. Please refresh the page and select a different key.');
+            // This is the specific error for invalid API keys with the Veo model.
+            setError('Your selected API Key appears to be invalid or lacks permissions. A dialog has been opened to select a different key. Please try again after selecting one.');
+            setState('error');
+            // Do not hide the UI. Immediately prompt the user to select a new key.
+            // The user's inputs are preserved.
+            await promptForKeySelection();
         } else {
-            setError(detailedMessage);
+            setError(`Generation failed: ${detailedMessage}`);
+            setState('error');
         }
-        setState('error');
     }
   };
+
+  if (isCheckingKey) {
+    return <Loader text="Checking API Key..." />;
+  }
+
+  if (!hasSelectedKey) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center p-4">
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-cyan-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+        <h2 className="text-xl font-bold mb-2 text-white">API Key Required</h2>
+        <p className="text-gray-400 mb-6 max-w-md">The Veo video generation model requires a personal API key with billing enabled to function.</p>
+        <button onClick={promptForKeySelection} className="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-6 rounded-lg transition-colors text-lg">
+          Select API Key
+        </button>
+        <p className="text-xs text-gray-500 mt-6">
+            For more information on billing, visit <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline">ai.google.dev/gemini-api/docs/billing</a>.
+        </p>
+      </div>
+    );
+  }
+
+  const isLoading = state === 'generating' || state === 'polling';
 
   return (
     <div className="flex flex-col h-full">
@@ -114,9 +177,9 @@ export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = ({ apiKey }
              <div className="flex flex-col items-center space-y-4">
                 <h3 className="text-xl font-semibold">Video Ready!</h3>
                 <video src={videoUrl} controls autoPlay loop className="w-full max-w-lg rounded-lg shadow-lg"></video>
-                <button onClick={() => setState('idle')} className="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">Generate Another Video</button>
+                <button onClick={() => { setState('idle'); setVideoUrl(null); setPrompt(''); setImageFile(null); setImagePreview(null); }} className="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">Generate Another Video</button>
              </div>
-        ) : state === 'generating' || state === 'polling' ? (
+        ) : isLoading ? (
              <div className="flex flex-col items-center justify-center h-full text-center">
                 <Loader text={statusMessage}/>
                 <p className="text-gray-400 mt-4 max-w-md">Video generation can take several minutes. Please keep this page open.</p>
@@ -159,7 +222,7 @@ export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = ({ apiKey }
 
       {(state === 'idle' || state === 'error') && (
         <div className="p-4 bg-gray-900 border-t border-gray-700/50">
-            <button onClick={handleGenerate} disabled={!imageFile} className="w-full bg-cyan-500 rounded-lg p-3 text-white font-semibold hover:bg-cyan-600 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors">
+            <button onClick={handleGenerate} disabled={isLoading || !imageFile} className="w-full bg-cyan-500 rounded-lg p-3 text-white font-semibold hover:bg-cyan-600 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors">
             Generate Video
             </button>
         </div>

@@ -2,8 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { BottomNav } from './components/layout/BottomNav';
 import { AssistantView } from './components/features/assistant/AssistantView';
 import { ChatbotView } from './components/features/chatbot/ChatbotView';
-import { ImageEditorView } from './components/features/imageEditor/ImageEditorView';
-import { VideoGeneratorView } from './components/features/videoGenerator/VideoGeneratorView';
 import { VideoAnalyzerView } from './components/features/videoAnalyzer/VideoAnalyzerView';
 import type { Feature } from './types';
 import { FEATURES } from './constants';
@@ -50,8 +48,6 @@ const App: React.FC = () => {
     switch (activeFeature.id) {
       case 'assistant': return <AssistantView apiKey={API_KEY} />;
       case 'chatbot': return <ChatbotView apiKey={API_KEY} />;
-      case 'image-editor': return <ImageEditorView apiKey={API_KEY} />;
-      case 'video-generator': return <VideoGeneratorView apiKey={API_KEY} />;
       case 'video-analyzer': return <VideoAnalyzerView apiKey={API_KEY} />;
       default: return <AssistantView apiKey={API_KEY} />;
     }
@@ -62,7 +58,7 @@ const App: React.FC = () => {
       <header className="flex-shrink-0 bg-gray-800/50 backdrop-blur-sm border-b border-gray-700/50 shadow-lg z-10">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <div className="flex items-center space-x-3">
-            <svg className="w-8 h-8 text-cyan-400" xmlns="http://www.w.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <svg className="w-8 h-8 text-cyan-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25z" />
             </svg>
             <h1 className="text-xl font-bold text-white tracking-tight">Brom AI</h1>
