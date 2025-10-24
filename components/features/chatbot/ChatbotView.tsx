@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { GoogleGenAI, Chat, Modality, Part } from '@google/genai';
 import type { ChatMessage, GroundingSource } from '../../../types';
@@ -14,7 +13,11 @@ const getAudioContext = () => {
     return outputAudioContext;
 };
 
-export const ChatbotView: React.FC = () => {
+interface ChatbotViewProps {
+  apiKey: string;
+}
+
+export const ChatbotView: React.FC<ChatbotViewProps> = ({ apiKey }) => {
   const [chat, setChat] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -30,7 +33,7 @@ export const ChatbotView: React.FC = () => {
   const audioChunksRef = useRef<Blob[]>([]);
   const speakingSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
-  const ai = useMemo(() => new GoogleGenAI({ apiKey: process.env.API_KEY as string }), []);
+  const ai = useMemo(() => new GoogleGenAI({ apiKey }), [apiKey]);
 
   useEffect(() => {
     const chatInstance = ai.chats.create({

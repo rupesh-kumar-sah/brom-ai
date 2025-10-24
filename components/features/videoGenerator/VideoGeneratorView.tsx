@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { GoogleGenAI, GenerateVideosOperation } from '@google/genai';
 import { Loader } from '../../common/Loader';
@@ -7,7 +6,11 @@ import { fileToBase64 } from '../../../utils/video';
 type GenerationState = 'idle' | 'generating' | 'polling' | 'success' | 'error';
 type AspectRatio = '16:9' | '9:16';
 
-export const VideoGeneratorView: React.FC = () => {
+interface VideoGeneratorViewProps {
+  apiKey: string;
+}
+
+export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = ({ apiKey }) => {
   const [prompt, setPrompt] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -34,14 +37,14 @@ export const VideoGeneratorView: React.FC = () => {
 
     while (!currentOp.done) {
       await new Promise(resolve => setTimeout(resolve, 10000));
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+      const ai = new GoogleGenAI({ apiKey });
       currentOp = await ai.operations.getVideosOperation({ operation: currentOp });
     }
     
     const downloadLink = currentOp.response?.generatedVideos?.[0]?.video?.uri;
     if (downloadLink) {
         // Must append API key for access
-        const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+        const response = await fetch(`${downloadLink}&key=${apiKey}`);
         const blob = await response.blob();
         setVideoUrl(URL.createObjectURL(blob));
         setState('success');
@@ -49,7 +52,7 @@ export const VideoGeneratorView: React.FC = () => {
     } else {
         throw new Error('Video generation finished but no video URL was found.');
     }
-  }, []);
+  }, [apiKey]);
 
   const handleGenerate = async () => {
     if (!imageFile) {
@@ -62,7 +65,7 @@ export const VideoGeneratorView: React.FC = () => {
     setStatusMessage('Starting video generation...');
     
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+      const ai = new GoogleGenAI({ apiKey });
       const base64Data = await fileToBase64(imageFile);
 
       setStatusMessage('Sending request to Gemini... This may take a moment.');

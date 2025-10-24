@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { Loader } from '../../common/Loader';
@@ -9,7 +8,11 @@ type AspectRatio = '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
 
 const ASPECT_RATIOS: AspectRatio[] = ['1:1', '16:9', '9:16', '4:3', '3:4'];
 
-export const ImageEditorView: React.FC = () => {
+interface ImageEditorViewProps {
+  apiKey: string;
+}
+
+export const ImageEditorView: React.FC<ImageEditorViewProps> = ({ apiKey }) => {
   const [mode, setMode] = useState<Mode>('generate');
   const [prompt, setPrompt] = useState('');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('1:1');
@@ -49,7 +52,7 @@ export const ImageEditorView: React.FC = () => {
     setIsLoading(true);
     setError(null);
     setGeneratedImage(null);
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+    const ai = new GoogleGenAI({ apiKey });
 
     try {
         if (mode === 'generate') {

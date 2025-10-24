@@ -166,8 +166,11 @@ const launchAppFunctionDeclaration: FunctionDeclaration = {
   },
 };
 
+interface AssistantViewProps {
+  apiKey: string;
+}
 
-export const AssistantView: React.FC = () => {
+export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey }) => {
   const [state, setState] = useState<AssistantState>('idle');
   const [language, setLanguage] = useState<Language>('nepali');
   const [transcription, setTranscription] = useState<{ user: string, model: string }>({ user: '', model: '' });
@@ -408,7 +411,7 @@ export const AssistantView: React.FC = () => {
       const inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       inputAudioContextRef.current = inputAudioContext;
       
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+      const ai = new GoogleGenAI({ apiKey });
       
       const selectedLanguageConfig = LANGUAGE_CONFIGS[language];
       
@@ -499,7 +502,7 @@ export const AssistantView: React.FC = () => {
       console.error('Failed to start conversation:', error);
       setState('idle');
     }
-  }, [handleServerMessage, stopConversation, language]);
+  }, [handleServerMessage, stopConversation, language, apiKey]);
 
   useEffect(() => {
     return () => {
