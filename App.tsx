@@ -3,12 +3,11 @@ import { BottomNav } from './components/layout/BottomNav';
 import { AssistantView } from './components/features/assistant/AssistantView';
 import { ChatbotView } from './components/features/chatbot/ChatbotView';
 import { VideoAnalyzerView } from './components/features/videoAnalyzer/VideoAnalyzerView';
+import { ImageEditorView } from './components/features/imageEditor/ImageEditorView';
+import { VideoGeneratorView } from './components/features/videoGenerator/VideoGeneratorView';
 import SettingsView, { AppPermissions, SUPPORTED_APPS } from './components/features/settings/SettingsView';
 import type { Feature } from './types';
 import { FEATURES } from './constants';
-
-// The API key is now hardcoded into the application.
-const API_KEY = 'AIzaSyCp2o4d7PIDIqV7-zj6VnNAZzBTWDekldg';
 
 type Settings = {
   assistantActivation: 'push-to-talk' | 'automatic';
@@ -119,11 +118,13 @@ const App: React.FC = () => {
 
   const renderFeature = () => {
     switch (activeFeature.id) {
-      case 'assistant': return <AssistantView apiKey={API_KEY} activationMode={settings.assistantActivation} />;
-      case 'chatbot': return <ChatbotView apiKey={API_KEY} />;
-      case 'video-analyzer': return <VideoAnalyzerView apiKey={API_KEY} />;
+      case 'assistant': return <AssistantView activationMode={settings.assistantActivation} />;
+      case 'chatbot': return <ChatbotView />;
+      case 'video-analyzer': return <VideoAnalyzerView />;
+      case 'image-editor': return <ImageEditorView />;
+      case 'video-generator': return <VideoGeneratorView />;
       case 'settings': return <SettingsView appPermissions={appPermissions} onPermissionsChange={setAppPermissions} />;
-      default: return <AssistantView apiKey={API_KEY} activationMode={settings.assistantActivation} />;
+      default: return <AssistantView activationMode={settings.assistantActivation} />;
     }
   };
 

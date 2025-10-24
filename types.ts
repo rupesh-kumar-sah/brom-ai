@@ -1,7 +1,7 @@
 import React from 'react';
 
 export interface Feature {
-  id: 'assistant' | 'chatbot' | 'video-analyzer' | 'settings';
+  id: 'assistant' | 'chatbot' | 'video-analyzer' | 'image-editor' | 'video-generator' | 'settings';
   name: string;
   // Fix: Use React.ReactElement as JSX is not in the scope of a .ts file.
   icon: React.ReactElement;

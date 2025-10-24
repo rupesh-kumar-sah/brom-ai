@@ -8,11 +8,9 @@ type AspectRatio = '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
 
 const ASPECT_RATIOS: AspectRatio[] = ['1:1', '16:9', '9:16', '4:3', '3:4'];
 
-interface ImageEditorViewProps {
-  apiKey: string;
-}
+interface ImageEditorViewProps {}
 
-export const ImageEditorView: React.FC<ImageEditorViewProps> = ({ apiKey }) => {
+export const ImageEditorView: React.FC<ImageEditorViewProps> = () => {
   const [mode, setMode] = useState<Mode>('generate');
   const [prompt, setPrompt] = useState('');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('1:1');
@@ -52,7 +50,7 @@ export const ImageEditorView: React.FC<ImageEditorViewProps> = ({ apiKey }) => {
     setIsLoading(true);
     setError(null);
     setGeneratedImage(null);
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     try {
         if (mode === 'generate') {

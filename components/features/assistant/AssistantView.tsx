@@ -229,11 +229,10 @@ const controlDeviceSettingsFunctionDeclaration: FunctionDeclaration = {
 };
 
 interface AssistantViewProps {
-  apiKey: string;
   activationMode: 'push-to-talk' | 'automatic';
 }
 
-export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey, activationMode }) => {
+export const AssistantView: React.FC<AssistantViewProps> = ({ activationMode }) => {
   const [state, setState] = useState<AssistantState>('idle');
   const [language, setLanguage] = useState<Language>('nepali');
   const [transcription, setTranscription] = useState<{ user: string, model: string }>({ user: '', model: '' });
@@ -510,7 +509,7 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey, activation
       const inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       inputAudioContextRef.current = inputAudioContext;
       
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
       const selectedLanguageConfig = LANGUAGE_CONFIGS[language];
       
@@ -612,7 +611,7 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey, activation
       }
       setState('idle');
     }
-  }, [handleServerMessage, stopConversation, language, apiKey]);
+  }, [handleServerMessage, stopConversation, language]);
 
   useEffect(() => {
     // Effect for automatic activation mode
