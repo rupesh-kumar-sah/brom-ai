@@ -3,9 +3,11 @@ import { GoogleGenAI } from '@google/genai';
 import { Loader, ErrorDisplay } from '../../common/Loader';
 import { extractFramesFromVideo } from '../../../utils/video';
 
-interface VideoAnalyzerViewProps {}
+interface VideoAnalyzerViewProps {
+  apiKey: string;
+}
 
-export const VideoAnalyzerView: React.FC<VideoAnalyzerViewProps> = () => {
+export const VideoAnalyzerView: React.FC<VideoAnalyzerViewProps> = ({ apiKey }) => {
   const [question, setQuestion] = useState('');
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export const VideoAnalyzerView: React.FC<VideoAnalyzerViewProps> = () => {
 
       setStatusMessage(`Analyzing ${frames.length} frames with your question...`);
 
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey });
       
       const imageParts = frames.map(frameData => ({
         inlineData: { data: frameData, mimeType: 'image/jpeg' }

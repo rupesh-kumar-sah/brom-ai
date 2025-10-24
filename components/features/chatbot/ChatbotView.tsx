@@ -13,9 +13,11 @@ const getAudioContext = () => {
     return outputAudioContext;
 };
 
-interface ChatbotViewProps {}
+interface ChatbotViewProps {
+  apiKey: string;
+}
 
-export const ChatbotView: React.FC<ChatbotViewProps> = () => {
+export const ChatbotView: React.FC<ChatbotViewProps> = ({ apiKey }) => {
   const [chat, setChat] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -32,7 +34,7 @@ export const ChatbotView: React.FC<ChatbotViewProps> = () => {
   const audioChunksRef = useRef<Blob[]>([]);
   const speakingSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
-  const ai = useMemo(() => new GoogleGenAI({ apiKey: process.env.API_KEY }), []);
+  const ai = useMemo(() => new GoogleGenAI({ apiKey }), [apiKey]);
 
   useEffect(() => {
     const chatInstance = ai.chats.create({
