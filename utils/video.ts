@@ -1,3 +1,4 @@
+
 export const extractFramesFromVideo = (videoUrl: string, fps: number = 1): Promise<string[]> => {
   return new Promise((resolve) => {
     const video = document.createElement('video');

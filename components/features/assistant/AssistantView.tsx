@@ -1,29 +1,177 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 // FIX: `LiveSession` is not an exported member of `@google/genai`. It has been removed from this import.
-import { GoogleGenAI, LiveServerMessage, Modality, Blob } from '@google/genai';
+import { GoogleGenAI, LiveServerMessage, Modality, Blob, FunctionDeclaration, Type } from '@google/genai';
 import { Waveform } from './Waveform';
 import { encode, decode, decodeAudioData } from '../../../utils/audio';
 
 // FIX: A local interface for `LiveSession` is defined here based on its usage, as it's not exported from the library.
 interface LiveSession {
   sendRealtimeInput(input: { media: Blob }): void;
+  sendToolResponse(response: any): void;
   close(): void;
 }
 
 type AssistantState = 'idle' | 'listening' | 'connecting' | 'speaking';
 type Language = 'english' | 'nepali' | 'maithili' | 'hindi';
 
+const BASE_SYSTEM_INSTRUCTION = "You are a friendly and helpful AI assistant from Nepal named Brom (ब्रोम). You are an expert on all things related to Nepal. When asked about news, current events, or any real-time information, use your search tool to provide the most up-to-date answers focusing on Nepal. You can also perform a wide variety of actions including: controlling smart home devices, setting reminders and alarms, managing calendar events, sending messages, getting weather forecasts and directions, playing music, managing lists, translating text, and opening applications on the user's device. Always be helpful and friendly. Respond in ";
+
 const LANGUAGE_CONFIGS: Record<Language, { name: string; systemInstruction: string; voice: string }> = {
-  english: { name: 'English', systemInstruction: 'You are a friendly and helpful AI assistant named Echo. Respond in English.', voice: 'Zephyr' },
-  nepali: { name: 'Nepali', systemInstruction: 'You are a friendly and helpful AI assistant named Echo. Respond in Nepali.', voice: 'Zephyr' },
-  maithili: { name: 'Maithili', systemInstruction: 'You are a friendly and helpful AI assistant named Echo. Respond in Maithili.', voice: 'Zephyr' },
-  hindi: { name: 'Hindi', systemInstruction: 'You are a friendly and helpful AI assistant named Echo. Respond in Hindi.', voice: 'Zephyr' },
+  english: { name: 'English', systemInstruction: `${BASE_SYSTEM_INSTRUCTION} English.`, voice: 'Zephyr' },
+  nepali: { name: 'Nepali', systemInstruction: `${BASE_SYSTEM_INSTRUCTION} Nepali.`, voice: 'Zephyr' },
+  maithili: { name: 'Maithili', systemInstruction: `${BASE_SYSTEM_INSTRUCTION} Maithili.`, voice: 'Zephyr' },
+  hindi: { name: 'Hindi', systemInstruction: `${BASE_SYSTEM_INSTRUCTION} Hindi.`, voice: 'Zephyr' },
 };
+
+// Function declarations for tools
+const controlLightFunctionDeclaration: FunctionDeclaration = {
+  name: 'controlLight',
+  parameters: {
+    type: Type.OBJECT,
+    description: 'Set the brightness and color temperature of a room light.',
+    properties: {
+      brightness: { type: Type.NUMBER, description: 'Light level from 0 to 100. Zero is off and 100 is full brightness.' },
+      colorTemperature: { type: Type.STRING, description: 'Color temperature of the light fixture such as `daylight`, `cool` or `warm`.' },
+    },
+    required: ['brightness', 'colorTemperature'],
+  },
+};
+
+const setReminderFunctionDeclaration: FunctionDeclaration = {
+  name: 'setReminder',
+  parameters: {
+    type: Type.OBJECT,
+    description: 'Sets a reminder for the user.',
+    properties: {
+      task: { type: Type.STRING, description: 'The task for the reminder.' },
+    },
+    required: ['task'],
+  },
+};
+
+const sendMessageFunctionDeclaration: FunctionDeclaration = {
+    name: 'sendMessage',
+    parameters: {
+        type: Type.OBJECT,
+        description: 'Sends a text message to a recipient.',
+        properties: {
+            recipient: { type: Type.STRING, description: 'The name or number of the person to message.' },
+            message: { type: Type.STRING, description: 'The content of the message.' },
+        },
+        required: ['recipient', 'message'],
+    },
+};
+
+const setAlarmFunctionDeclaration: FunctionDeclaration = {
+  name: 'setAlarm',
+  parameters: {
+    type: Type.OBJECT,
+    description: 'Sets an alarm for a specific time.',
+    properties: {
+      time: { type: Type.STRING, description: 'The time to set the alarm for, e.g., "7:00 AM" or "in 15 minutes".' },
+      label: { type: Type.STRING, description: 'An optional label for the alarm.' },
+    },
+    required: ['time'],
+  },
+};
+
+const createCalendarEventFunctionDeclaration: FunctionDeclaration = {
+  name: 'createCalendarEvent',
+  parameters: {
+    type: Type.OBJECT,
+    description: 'Adds an event to the user\'s calendar.',
+    properties: {
+      title: { type: Type.STRING, description: 'The title of the event.' },
+      date: { type: Type.STRING, description: 'The date of the event, e.g., "tomorrow" or "June 5th".' },
+      time: { type: Type.STRING, description: 'The time of the event, e.g., "3 PM".' },
+      duration: { type: Type.STRING, description: 'The duration of the event, e.g., "1 hour".' },
+    },
+    required: ['title', 'date', 'time'],
+  },
+};
+
+const getWeatherForecastFunctionDeclaration: FunctionDeclaration = {
+  name: 'getWeatherForecast',
+  parameters: {
+    type: Type.OBJECT,
+    description: 'Gets the current weather forecast for a specified location.',
+    properties: {
+      location: { type: Type.STRING, description: 'The city or area to get the weather for, e.g., "San Francisco".' },
+    },
+    required: ['location'],
+  },
+};
+
+const getDirectionsFunctionDeclaration: FunctionDeclaration = {
+  name: 'getDirections',
+  parameters: {
+    type: Type.OBJECT,
+    description: 'Provides navigation directions between two points.',
+    properties: {
+      destination: { type: Type.STRING, description: 'The destination address or place.' },
+      startingPoint: { type: Type.STRING, description: 'The starting point. Defaults to current location if not provided.' },
+    },
+    required: ['destination'],
+  },
+};
+
+const playMusicFunctionDeclaration: FunctionDeclaration = {
+  name: 'playMusic',
+  parameters: {
+    type: Type.OBJECT,
+    description: 'Plays music based on artist, song, or playlist.',
+    properties: {
+      artist: { type: Type.STRING, description: 'The name of the artist.' },
+      song: { type: Type.STRING, description: 'The title of the song.' },
+      playlist: { type: Type.STRING, description: 'The name of the playlist.' },
+    },
+  },
+};
+
+const addToListFunctionDeclaration: FunctionDeclaration = {
+  name: 'addToList',
+  parameters: {
+    type: Type.OBJECT,
+    description: 'Adds an item to a specified list, like a shopping or to-do list.',
+    properties: {
+      listName: { type: Type.STRING, description: 'The name of the list, e.g., "shopping".' },
+      item: { type: Type.STRING, description: 'The item to add to the list.' },
+    },
+    required: ['listName', 'item'],
+  },
+};
+
+const translateTextFunctionDeclaration: FunctionDeclaration = {
+  name: 'translateText',
+  parameters: {
+    type: Type.OBJECT,
+    description: 'Translates text from one language to another.',
+    properties: {
+      text: { type: Type.STRING, description: 'The text to be translated.' },
+      targetLanguage: { type: Type.STRING, description: 'The language to translate the text into, e.g., "Spanish".' },
+    },
+    required: ['text', 'targetLanguage'],
+  },
+};
+
+const launchAppFunctionDeclaration: FunctionDeclaration = {
+  name: 'launchApp',
+  parameters: {
+    type: Type.OBJECT,
+    description: "Opens or launches an application on the user's device.",
+    properties: {
+      appName: { type: Type.STRING, description: 'The name of the application to launch, e.g., "Spotify", "Twitter", "Runtastic".' },
+    },
+    required: ['appName'],
+  },
+};
+
 
 export const AssistantView: React.FC = () => {
   const [state, setState] = useState<AssistantState>('idle');
-  const [language, setLanguage] = useState<Language>('english');
+  const [language, setLanguage] = useState<Language>('nepali');
   const [transcription, setTranscription] = useState<{ user: string, model: string }>({ user: '', model: '' });
+  const [systemActions, setSystemActions] = useState<string[]>([]);
   const [micLevel, setMicLevel] = useState(0);
 
   const sessionPromiseRef = useRef<Promise<LiveSession> | null>(null);
@@ -87,6 +235,111 @@ export const AssistantView: React.FC = () => {
       setState('listening');
     }
 
+    if (message.toolCall) {
+        for (const fc of message.toolCall.functionCalls) {
+            let actionResult = "ok";
+            let actionDescription = "";
+
+            switch (fc.name) {
+                case 'controlLight':
+                    const { brightness = 100, colorTemperature = 'neutral' } = fc.args;
+                    actionDescription = `💡 Light set to ${brightness}% brightness with a ${colorTemperature} temperature.`;
+                    console.log(`Simulating light control:`, fc.args);
+                    break;
+                case 'setReminder':
+                    const { task } = fc.args;
+                    actionDescription = `⏰ Reminder set: "${task}"`;
+                    console.log(`Simulating setting reminder:`, fc.args);
+                    break;
+                case 'sendMessage':
+                    const { recipient, message: msgContent } = fc.args;
+                    actionDescription = `💬 Message to ${recipient} queued: "${msgContent}"`;
+                    console.log(`Simulating sending message:`, fc.args);
+                    break;
+                case 'setAlarm':
+                    const { time, label } = fc.args;
+                    actionDescription = `🚨 Alarm set for ${time}${label ? ` with label "${label}"` : ''}.`;
+                    console.log(`Simulating setting alarm:`, fc.args);
+                    break;
+                case 'createCalendarEvent':
+                    const { title, date, time: eventTime } = fc.args;
+                    actionDescription = `📅 Event created: "${title}" on ${date} at ${eventTime}.`;
+                    console.log(`Simulating creating calendar event:`, fc.args);
+                    break;
+                case 'getWeatherForecast':
+                    const { location } = fc.args;
+                    actionResult = `The weather in ${location} is currently sunny with a high of 75 degrees.`;
+                    actionDescription = `☀️ Weather forecast requested for ${location}.`;
+                    console.log(`Simulating getting weather:`, fc.args);
+                    break;
+                case 'getDirections':
+                    const { destination, startingPoint } = fc.args;
+                    actionDescription = `🗺️ Navigating to ${destination}${startingPoint ? ` from ${startingPoint}` : ''}.`;
+                    console.log(`Simulating getting directions:`, fc.args);
+                    break;
+                case 'playMusic':
+                    const { artist, song, playlist } = fc.args;
+                    let playing = [];
+                    if (song) playing.push(`the song "${song}"`);
+                    if (artist) playing.push(`by the artist ${artist}`);
+                    if (playlist) playing.push(`from the playlist "${playlist}"`);
+                    let playingText = playing.length > 0 ? playing.join(' ') : 'some music';
+                    actionDescription = `🎵 Playing ${playingText}.`;
+                    console.log(`Simulating playing music:`, fc.args);
+                    break;
+                case 'addToList':
+                    const { listName, item } = fc.args;
+                    actionDescription = `📝 Added "${item}" to your ${listName} list.`;
+                    console.log(`Simulating adding to list:`, fc.args);
+                    break;
+                case 'translateText':
+                    const { text, targetLanguage } = fc.args;
+                    actionResult = `The model will provide the translation for "${text}" into ${targetLanguage}.`;
+                    actionDescription = `🌐 Translating "${text}" to ${targetLanguage}.`;
+                    console.log(`Simulating translation:`, fc.args);
+                    break;
+                 case 'launchApp':
+                    const { appName } = fc.args;
+                    const appSchemeMap: Record<string, string> = {
+                        'spotify': 'spotify://',
+                        'twitter': 'twitter://',
+                        'instagram': 'instagram://',
+                        'youtube': 'youtube://',
+                        'whatsapp': 'whatsapp://',
+                        'facebook': 'fb://',
+                        'slack': 'slack://',
+                        'discord': 'discord://',
+                    };
+                    // FIX: The `appName` argument from the function call is of type `unknown`.
+                    // It is cast to a string to allow calling `toLowerCase()`, which is safe
+                    // because the function declaration schema requires it to be a string.
+                    const lowerCaseAppName = (appName as string).toLowerCase();
+                    const urlScheme = appSchemeMap[lowerCaseAppName] || `${lowerCaseAppName.replace(/\s/g, '')}://`;
+                    
+                    actionDescription = `🚀 Launching ${appName}...`;
+                    actionResult = `Attempting to open ${appName}.`;
+                    console.log(`Attempting to launch app: ${appName} with URL scheme: ${urlScheme}`);
+                    window.location.href = urlScheme;
+                    break;
+                default:
+                    actionDescription = `❓ Unknown action attempted: ${fc.name}`;
+                    actionResult = "error: unknown function";
+            }
+            
+            setSystemActions(prev => [actionDescription, ...prev].slice(0, 5));
+
+            sessionPromiseRef.current?.then((session) => {
+                session.sendToolResponse({
+                  functionResponses: {
+                    id : fc.id,
+                    name: fc.name,
+                    response: { result: actionResult },
+                  }
+                })
+            });
+        }
+    }
+
     const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
     if (base64Audio && outputAudioContextRef.current) {
       const outputCtx = outputAudioContextRef.current;
@@ -138,18 +391,18 @@ export const AssistantView: React.FC = () => {
     
     setMicLevel(0);
     setState('idle');
+    setSystemActions([]);
   }, []);
 
   const startConversation = useCallback(async () => {
     setState('connecting');
     setTranscription({ user: '', model: '' });
+    setSystemActions([]);
 
     try {
-      // Setup output audio
       const outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       outputAudioContextRef.current = outputAudioContext;
 
-      // Setup input audio
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
       const inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
@@ -169,6 +422,22 @@ export const AssistantView: React.FC = () => {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: selectedLanguageConfig.voice } },
           },
           systemInstruction: selectedLanguageConfig.systemInstruction,
+          tools: [
+            { googleSearch: {} },
+            { functionDeclarations: [
+              controlLightFunctionDeclaration, 
+              setReminderFunctionDeclaration, 
+              sendMessageFunctionDeclaration,
+              setAlarmFunctionDeclaration,
+              createCalendarEventFunctionDeclaration,
+              getWeatherForecastFunctionDeclaration,
+              getDirectionsFunctionDeclaration,
+              playMusicFunctionDeclaration,
+              addToListFunctionDeclaration,
+              translateTextFunctionDeclaration,
+              launchAppFunctionDeclaration
+            ] }
+          ],
         },
         callbacks: {
           onopen: () => {
@@ -181,7 +450,6 @@ export const AssistantView: React.FC = () => {
             const source = inputAudioContextRef.current.createMediaStreamSource(mediaStreamRef.current);
             mediaStreamSourceRef.current = source;
 
-            // For waveform visualization
             const analyser = inputAudioContextRef.current.createAnalyser();
             analyser.fftSize = 512;
             source.connect(analyser);
@@ -234,7 +502,6 @@ export const AssistantView: React.FC = () => {
   }, [handleServerMessage, stopConversation, language]);
 
   useEffect(() => {
-    // Cleanup on unmount
     return () => {
       stopConversation();
     };
@@ -263,8 +530,8 @@ export const AssistantView: React.FC = () => {
         <h2 className="text-2xl font-bold text-gray-200 mb-2">AI Assistant</h2>
         <p className="text-gray-400 mb-4 max-w-md">
           {state === 'idle' 
-           ? 'Select your language, then press the button and start speaking.' 
-           : 'Your conversation is in progress.'}
+           ? "Try asking: 'नेपालको पछिल्लो समाचार के छ?' or 'Open Spotify'"
+           : 'तपाईंको कुराकानी प्रगतिमा छ।'}
         </p>
 
         {state === 'idle' && (
@@ -289,10 +556,21 @@ export const AssistantView: React.FC = () => {
              {transcription.user || (state === 'listening' ? '...' : '')}
            </p>
            <p className="text-lg text-white mt-4">
-             <span className="font-semibold text-purple-400">Echo: </span>
+             <span className="font-semibold text-purple-400">Brom: </span>
              {transcription.model}
            </p>
         </div>
+        
+        {systemActions.length > 0 && (
+            <div className="w-full mt-4 bg-gray-800/50 rounded-lg p-4 text-left">
+                <h3 className="text-sm font-semibold text-gray-400 mb-2">System Actions</h3>
+                <ul className="space-y-2">
+                    {systemActions.map((action, index) => (
+                        <li key={index} className="text-sm text-gray-300 animate-fade-in">{action}</li>
+                    ))}
+                </ul>
+            </div>
+        )}
       </div>
       
       <div className="flex-shrink-0 w-full flex flex-col items-center justify-center p-4">

@@ -8,7 +8,6 @@ type GenerationState = 'idle' | 'generating' | 'polling' | 'success' | 'error';
 type AspectRatio = '16:9' | '9:16';
 
 export const VideoGeneratorView: React.FC = () => {
-  const [apiKeySelected, setApiKeySelected] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -17,27 +16,6 @@ export const VideoGeneratorView: React.FC = () => {
   const [statusMessage, setStatusMessage] = useState('');
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const checkApiKey = useCallback(async () => {
-    // @ts-ignore
-    if (window.aistudio && await window.aistudio.hasSelectedApiKey()) {
-      setApiKeySelected(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    checkApiKey();
-  }, [checkApiKey]);
-
-  const handleSelectKey = async () => {
-    // @ts-ignore
-    if (window.aistudio) {
-      // @ts-ignore
-      await window.aistudio.openSelectKey();
-      // Assume success to avoid race condition
-      setApiKeySelected(true);
-    }
-  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -118,28 +96,13 @@ export const VideoGeneratorView: React.FC = () => {
         
         // Check for the specific API key error.
         if (detailedMessage.includes('Requested entity was not found')) {
-            setError('API Key is invalid or not configured for this model. Please select a valid key.');
-            setApiKeySelected(false);
+            setError('Your selected API Key appears to be invalid or lacks the necessary permissions for the Veo model. Please refresh the page and select a different key.');
         } else {
             setError(detailedMessage);
         }
         setState('error');
     }
   };
-
-  if (!apiKeySelected) {
-    return (
-        <div className="flex flex-col items-center justify-center h-full text-center bg-gray-800 p-8 rounded-lg">
-            <h2 className="text-2xl font-bold text-white mb-4">API Key Required for Video Generation</h2>
-            <p className="text-gray-300 mb-6 max-w-md">The Veo video model requires a personal API key with billing enabled. Please select your key to continue.</p>
-            {error && <p className="text-red-400 text-center mb-4">{error}</p>}
-            <button onClick={handleSelectKey} className="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-6 rounded-lg transition-colors">
-                Select API Key
-            </button>
-            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-sm text-cyan-400 hover:underline mt-4">Learn more about billing</a>
-        </div>
-    );
-  }
 
   return (
     <div className="flex flex-col h-full">

@@ -1,7 +1,9 @@
 {
-  "name": "brom ai",
-  "description": "A sophisticated, multi-modal AI web application that acts as a comprehensive suite of tools powered by Google's Gemini API, featuring a voice assistant, chatbot, image editor, video generator, and video analyzer.",
+  "name": "Brom AI",
+  "description": "A sophisticated, multi-modal AI web application for Nepal, powered by Google's Gemini API. It features a voice assistant (Brom), chatbot, and other tools tailored for Nepali users with real-time information.",
   "requestFramePermissions": [
-    "microphone"
+    "microphone",
+    "camera",
+    "geolocation"
   ]
 }

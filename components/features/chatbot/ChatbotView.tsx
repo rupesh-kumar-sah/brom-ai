@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { GoogleGenAI, Chat, Modality, Part } from '@google/genai';
 import type { ChatMessage, GroundingSource } from '../../../types';
@@ -35,6 +36,7 @@ export const ChatbotView: React.FC = () => {
     const chatInstance = ai.chats.create({
       model: 'gemini-2.5-flash',
       config: {
+        systemInstruction: "You are a helpful AI chatbot for users in Nepal. When providing information, prioritize sources and context relevant to Nepal.",
         tools: [{ googleSearch: {} }, { googleMaps: {} }],
       },
     });
@@ -42,7 +44,7 @@ export const ChatbotView: React.FC = () => {
     setMessages([{
         id: 'initial',
         role: 'model',
-        text: "Hello! I can search Google and Maps for up-to-date info. You can also upload an image or use your voice. Ask me anything!"
+        text: "नमस्ते! म नेपालको लागि तपाईंको सहयोगी हुँ। म तपाईंलाई नवीनतम जानकारी, समाचार, र नक्सा दिशाहरू प्रदान गर्न सक्छु। मलाई केहि पनि सोध्नुहोस्!"
     }]);
   }, [ai]);
 
