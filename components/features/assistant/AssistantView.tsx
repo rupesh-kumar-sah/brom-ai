@@ -155,39 +155,6 @@ export const AssistantView: React.FC = () => {
       const inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       inputAudioContextRef.current = inputAudioContext;
       
-      const source = inputAudioContext.createMediaStreamSource(stream);
-      mediaStreamSourceRef.current = source;
-
-      // For waveform visualization
-      const analyser = inputAudioContext.createAnalyser();
-      analyser.fftSize = 512;
-      source.connect(analyser);
-      analyserNodeRef.current = analyser;
-
-      const scriptProcessor = inputAudioContext.createScriptProcessor(4096, 1, 1);
-      scriptProcessorRef.current = scriptProcessor;
-
-      scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
-        const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
-        
-        const l = inputData.length;
-        const int16 = new Int16Array(l);
-        for (let i = 0; i < l; i++) {
-            int16[i] = inputData[i] * 32768;
-        }
-
-        const pcmBlob: Blob = {
-            data: encode(new Uint8Array(int16.buffer)),
-            mimeType: 'audio/pcm;rate=16000',
-        };
-        sessionPromiseRef.current?.then((session) => {
-          session.sendRealtimeInput({ media: pcmBlob });
-        });
-      };
-      
-      source.connect(scriptProcessor);
-      scriptProcessor.connect(inputAudioContext.destination);
-
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
       
       const selectedLanguageConfig = LANGUAGE_CONFIGS[language];
@@ -205,6 +172,45 @@ export const AssistantView: React.FC = () => {
         },
         callbacks: {
           onopen: () => {
+            if (!inputAudioContextRef.current || !mediaStreamRef.current) {
+                console.error("Input audio context or media stream not available.");
+                stopConversation();
+                return;
+            }
+
+            const source = inputAudioContextRef.current.createMediaStreamSource(mediaStreamRef.current);
+            mediaStreamSourceRef.current = source;
+
+            // For waveform visualization
+            const analyser = inputAudioContextRef.current.createAnalyser();
+            analyser.fftSize = 512;
+            source.connect(analyser);
+            analyserNodeRef.current = analyser;
+
+            const scriptProcessor = inputAudioContextRef.current.createScriptProcessor(4096, 1, 1);
+            scriptProcessorRef.current = scriptProcessor;
+
+            scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
+              const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
+              
+              const l = inputData.length;
+              const int16 = new Int16Array(l);
+              for (let i = 0; i < l; i++) {
+                  int16[i] = inputData[i] * 32768;
+              }
+
+              const pcmBlob: Blob = {
+                  data: encode(new Uint8Array(int16.buffer)),
+                  mimeType: 'audio/pcm;rate=16000',
+              };
+              sessionPromiseRef.current?.then((session) => {
+                session.sendRealtimeInput({ media: pcmBlob });
+              });
+            };
+            
+            source.connect(scriptProcessor);
+            scriptProcessor.connect(inputAudioContextRef.current.destination);
+            
             setState('listening');
           },
           onmessage: async (message: LiveServerMessage) => {

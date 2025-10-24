@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { GoogleGenAI, Chat, Modality, Part } from '@google/genai';
 import type { ChatMessage, GroundingSource } from '../../../types';
 import { fileToBase64 } from '../../../utils/video';
@@ -21,14 +21,19 @@ export const ChatbotView: React.FC = () => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState<string | null>(null); // message ID
+  const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'transcribing'>('idle');
+  
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const speakingSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
+  const ai = useMemo(() => new GoogleGenAI({ apiKey: process.env.API_KEY as string }), []);
 
   useEffect(() => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
     const chatInstance = ai.chats.create({
-      model: 'gemini-flash-lite-latest',
+      model: 'gemini-2.5-flash',
       config: {
         tools: [{ googleSearch: {} }, { googleMaps: {} }],
       },
@@ -37,9 +42,9 @@ export const ChatbotView: React.FC = () => {
     setMessages([{
         id: 'initial',
         role: 'model',
-        text: "Hello! I can search Google and Maps for up-to-date info. You can also upload an image to discuss it. Ask me anything!"
+        text: "Hello! I can search Google and Maps for up-to-date info. You can also upload an image or use your voice. Ask me anything!"
     }]);
-  }, []);
+  }, [ai]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -55,11 +60,33 @@ export const ChatbotView: React.FC = () => {
     }
   };
 
+  const handleStopSpeak = useCallback(() => {
+    if (speakingSourceRef.current) {
+        speakingSourceRef.current.stop();
+        speakingSourceRef.current.disconnect();
+        speakingSourceRef.current = null;
+    }
+    setIsSpeaking(null);
+  }, []);
+
+  useEffect(() => {
+    // Cleanup audio on unmount
+    return () => {
+        handleStopSpeak();
+    };
+  }, [handleStopSpeak]);
+
   const handleSpeak = async (text: string, messageId: string) => {
-    if (isSpeaking) return;
+    if (isSpeaking === messageId) {
+        handleStopSpeak();
+        return;
+    }
+    if (isSpeaking) {
+        handleStopSpeak();
+    }
+
     setIsSpeaking(messageId);
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
             contents: [{ parts: [{ text }] }],
@@ -72,9 +99,15 @@ export const ChatbotView: React.FC = () => {
             const audioCtx = getAudioContext();
             const audioBuffer = await decodeAudioData(decode(base64Audio), audioCtx, 24000, 1);
             const source = audioCtx.createBufferSource();
+            speakingSourceRef.current = source;
             source.buffer = audioBuffer;
             source.connect(audioCtx.destination);
-            source.onended = () => setIsSpeaking(null);
+            source.onended = () => {
+                if (speakingSourceRef.current === source) {
+                    setIsSpeaking(null);
+                    speakingSourceRef.current = null;
+                }
+            };
             source.start();
         } else {
             setIsSpeaking(null);
@@ -141,6 +174,62 @@ export const ChatbotView: React.FC = () => {
     }
   };
 
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+    }
+  }, []);
+
+  const startRecording = useCallback(async () => {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        mediaRecorderRef.current = mediaRecorder;
+        audioChunksRef.current = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+            audioChunksRef.current.push(event.data);
+        };
+
+        mediaRecorder.onstop = async () => {
+            setRecordingState('transcribing');
+            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            stream.getTracks().forEach(track => track.stop());
+
+            try {
+                const base64Audio = await fileToBase64(audioBlob);
+                const response = await ai.models.generateContent({
+                    model: 'gemini-2.5-flash',
+                    contents: { parts: [
+                        { text: "Transcribe this audio recording precisely." },
+                        { inlineData: { mimeType: 'audio/webm', data: base64Audio } }
+                    ]}
+                });
+                setInput(prev => (prev ? prev + ' ' : '') + response.text);
+            } catch (err) {
+                console.error("Transcription error:", err);
+            } finally {
+                setRecordingState('idle');
+            }
+        };
+
+        mediaRecorder.start();
+        setRecordingState('recording');
+    } catch (err) {
+        console.error("Microphone access error:", err);
+        setRecordingState('idle');
+    }
+  }, [ai]);
+  
+  const handleMicClick = useCallback(() => {
+    if (recordingState === 'recording') {
+        stopRecording();
+    } else if (recordingState === 'idle') {
+        startRecording();
+    }
+  }, [recordingState, startRecording, stopRecording]);
+
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -150,7 +239,7 @@ export const ChatbotView: React.FC = () => {
               {msg.image && <img src={msg.image} alt="User upload" className="rounded-lg mb-2 max-h-48" />}
               <p className="text-white whitespace-pre-wrap">{msg.text}</p>
               {msg.role === 'model' && msg.text && (
-                  <button onClick={() => handleSpeak(msg.text, msg.id)} disabled={!!isSpeaking} className="text-cyan-300 hover:text-cyan-100 disabled:text-gray-500 mt-2">
+                  <button onClick={() => handleSpeak(msg.text, msg.id)} disabled={isSpeaking && isSpeaking !== msg.id} className="text-cyan-300 hover:text-cyan-100 disabled:text-gray-500 mt-2">
                       {isSpeaking === msg.id ? (
                         <svg className="w-5 h-5 animate-pulse" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4 18h3V6H4v12zm5 0h3V6H9v12zm5 0h3V6h-3v12zm5 0h3V6h-3v12z"/></svg>
                       ) : (
@@ -196,13 +285,26 @@ export const ChatbotView: React.FC = () => {
           <label htmlFor="image-upload-chatbot" className="p-2 text-gray-400 hover:text-cyan-400 cursor-pointer">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3.375 3.375 0 0119.5 7.372l-8.55 8.55a.75.75 0 01-1.06-1.06l8.55-8.55a4.875 4.875 0 00-6.89-6.89l-10.94 10.94a6 6 0 108.486 8.486l7.693-7.693a.75.75 0 011.06 1.06z" /></svg>
           </label>
+           <button type="button" onClick={handleMicClick} disabled={isLoading} className={`p-2 rounded-full transition-colors ${recordingState === 'recording' ? 'text-red-500 bg-red-500/20' : 'text-gray-400 hover:text-cyan-400'}`}>
+              {recordingState === 'transcribing' ? (
+                  <div className="w-6 h-6 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
+              ) : recordingState === 'recording' ? (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 animate-pulse"><path d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" /></svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" /></svg>
+              )}
+          </button>
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message or upload an image..."
+            placeholder={
+                recordingState === 'recording' ? 'Recording... Press mic to stop' : 
+                recordingState === 'transcribing' ? 'Transcribing...' : 
+                'Type or speak your message...'
+            }
             className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none px-3"
-            disabled={isLoading}
+            disabled={isLoading || recordingState !== 'idle'}
           />
           <button type="submit" disabled={isLoading || (!input.trim() && !imageFile)} className="bg-cyan-500 rounded-full p-3 text-white hover:bg-cyan-600 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>

@@ -1,4 +1,3 @@
-
 export const extractFramesFromVideo = (videoUrl: string, fps: number = 1): Promise<string[]> => {
   return new Promise((resolve) => {
     const video = document.createElement('video');
@@ -34,7 +33,7 @@ export const extractFramesFromVideo = (videoUrl: string, fps: number = 1): Promi
   });
 };
 
-export const fileToBase64 = (file: File): Promise<string> => {
+export const fileToBase64 = (file: File | Blob): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
