@@ -1,9 +1,10 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 // FIX: `LiveSession` is not an exported member of `@google/genai`. It has been removed from this import.
 import { GoogleGenAI, LiveServerMessage, Modality, Blob, FunctionDeclaration, Type } from '@google/genai';
 import { Waveform } from './Waveform';
 import { encode, decode, decodeAudioData } from '../../../utils/audio';
 import { ErrorDisplay } from '../../common/Loader';
+import { SUPPORTED_APPS, AppPermissions } from '../settings/SettingsView';
 
 // FIX: A local interface for `LiveSession` is defined here based on its usage, as it's not exported from the library.
 interface LiveSession {
@@ -15,13 +16,13 @@ interface LiveSession {
 type AssistantState = 'idle' | 'listening' | 'connecting' | 'speaking';
 type Language = 'english' | 'nepali' | 'maithili' | 'hindi';
 
-const BASE_SYSTEM_INSTRUCTION = "You are a friendly and helpful AI assistant from Nepal named Brom (ब्रोम). You are an expert on all things related to Nepal. When asked about news, current events, or any real-time information, use your search tool to provide the most up-to-date answers focusing on Nepal. You can also perform a wide variety of actions including: making calls, sending messages, setting alarms, timers, and reminders, managing and checking your calendar, getting weather forecasts and directions, playing music, movies, and TV shows, controlling smart home devices and device settings, managing lists, translating text, and opening applications on the user's device. Always be helpful and friendly. Respond in ";
+const BASE_SYSTEM_INSTRUCTION = "You are Echo, a friendly and helpful AI assistant from Nepal, an expert on all things related to the country. Your primary function is to provide the most current and accurate information. For any questions about news, current events, the current time and date, or any real-time information, you MUST use your search tool to find the latest details, with a strong focus on Nepal. You are also capable of performing a wide variety of actions such as making calls, sending messages, setting alarms and reminders, managing calendars, getting weather forecasts and directions, playing music, controlling smart home devices, managing lists, and opening applications. Always prioritize providing fresh, real-time information from your search tool when applicable. Be helpful and friendly. Respond in ";
 
 const LANGUAGE_CONFIGS: Record<Language, { name: string; systemInstruction: string; voice: string }> = {
   english: { name: 'English', systemInstruction: `${BASE_SYSTEM_INSTRUCTION} English.`, voice: 'Zephyr' },
-  nepali: { name: 'Nepali', systemInstruction: `${BASE_SYSTEM_INSTRUCTION} Nepali.`, voice: 'Zephyr' },
-  maithili: { name: 'Maithili', systemInstruction: `${BASE_SYSTEM_INSTRUCTION} Maithili.`, voice: 'Zephyr' },
-  hindi: { name: 'Hindi', systemInstruction: `${BASE_SYSTEM_INSTRUCTION} Hindi.`, voice: 'Zephyr' },
+  nepali: { name: 'Nepali', systemInstruction: `${BASE_SYSTEM_INSTRUCTION} Nepali.`, voice: 'Puck' },
+  maithili: { name: 'Maithili', systemInstruction: `${BASE_SYSTEM_INSTRUCTION} Maithili.`, voice: 'Charon' },
+  hindi: { name: 'Hindi', systemInstruction: `${BASE_SYSTEM_INSTRUCTION} Hindi.`, voice: 'Kore' },
 };
 
 // Function declarations for tools
@@ -231,9 +232,10 @@ const controlDeviceSettingsFunctionDeclaration: FunctionDeclaration = {
 interface AssistantViewProps {
   apiKey: string;
   activationMode: 'push-to-talk' | 'automatic';
+  appPermissions: AppPermissions;
 }
 
-export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey, activationMode }) => {
+export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey, activationMode, appPermissions }) => {
   const [state, setState] = useState<AssistantState>('idle');
   const [language, setLanguage] = useState<Language>('nepali');
   const [transcription, setTranscription] = useState<{ user: string, model: string }>({ user: '', model: '' });
@@ -251,6 +253,9 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey, activation
   const nextStartTimeRef = useRef(0);
   const outputSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const triedAutoStartRef = useRef(false);
+  const transitionToListeningTimeoutRef = useRef<number | null>(null);
+  
+  const isMobile = useMemo(() => /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent), []);
 
   useEffect(() => {
     let animationFrameId: number | null = null;
@@ -300,7 +305,23 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey, activation
     }
     if (message.serverContent?.turnComplete) {
       setTranscription({ user: '', model: '' });
-      setState('listening');
+      
+      if (transitionToListeningTimeoutRef.current) {
+        clearTimeout(transitionToListeningTimeoutRef.current);
+      }
+
+      const outputCtx = outputAudioContextRef.current;
+      if (outputCtx && nextStartTimeRef.current > outputCtx.currentTime) {
+        const remainingPlaybackTime = Math.max(0, nextStartTimeRef.current - outputCtx.currentTime);
+        const timeoutDuration = (remainingPlaybackTime * 1000) + 200;
+
+        transitionToListeningTimeoutRef.current = window.setTimeout(() => {
+          setState('listening');
+          transitionToListeningTimeoutRef.current = null;
+        }, timeoutDuration);
+      } else {
+        setState('listening');
+      }
     }
 
     if (message.toolCall) {
@@ -311,116 +332,203 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey, activation
             switch (fc.name) {
                 case 'controlLight':
                     const { brightness = 100, colorTemperature = 'neutral' } = fc.args;
-                    actionDescription = `💡 Light set to ${brightness}% brightness with a ${colorTemperature} temperature.`;
-                    console.log(`Simulating light control:`, fc.args);
+                    actionDescription = `💡 Light set to ${brightness}% brightness with a ${colorTemperature} temperature. (Simulation)`;
+                    actionResult = "I have simulated controlling the light as requested. In a real application, this would adjust a smart home device.";
                     break;
-                case 'setReminder':
+                case 'setReminder': {
                     const { task } = fc.args;
-                    actionDescription = `⏰ Reminder set: "${task}"`;
-                    console.log(`Simulating setting reminder:`, fc.args);
+                    actionDescription = `📅 Opening Google Calendar to set reminder: "${task}"`;
+                    actionResult = `I'm opening Google Calendar for you to set a reminder about "${task}".`;
+                    const calendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(task as string)}`;
+                    window.open(calendarUrl, '_blank', 'noopener,noreferrer');
                     break;
-                case 'sendMessage':
+                }
+                case 'sendMessage': {
+                    if (!appPermissions['whatsapp']) {
+                        actionDescription = `❌ Permission denied for WhatsApp.`;
+                        actionResult = `I don't have permission to send messages with WhatsApp. You can enable this in the settings.`;
+                        break;
+                    }
                     const { recipient, message: msgContent } = fc.args;
-                    actionDescription = `💬 Message to ${recipient} queued: "${msgContent}"`;
-                    console.log(`Simulating sending message:`, fc.args);
+                    actionDescription = `💬 Opening WhatsApp for message to ${recipient}.`;
+                    actionResult = `I'm opening WhatsApp so you can send your message.`;
+                    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(msgContent as string)}`;
+                    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
                     break;
-                case 'setAlarm':
+                }
+                case 'setAlarm': {
                     const { time, label } = fc.args;
-                    actionDescription = `🚨 Alarm set for ${time}${label ? ` with label "${label}"` : ''}.`;
-                    console.log(`Simulating setting alarm:`, fc.args);
+                    const query = `set an alarm for ${time}${label ? ` called ${label}` : ''}`;
+                    actionDescription = `🚨 Opening Google to set alarm for ${time}...`;
+                    actionResult = `I've opened a Google search for you to set the alarm.`;
+                    window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, '_blank', 'noopener,noreferrer');
                     break;
-                case 'createCalendarEvent':
+                }
+                case 'createCalendarEvent': {
                     const { title, date, time: eventTime } = fc.args;
-                    actionDescription = `📅 Event created: "${title}" on ${date} at ${eventTime}.`;
-                    console.log(`Simulating creating calendar event:`, fc.args);
+                    actionDescription = `📅 Opening Google Calendar to create event: "${title}"...`;
+                    actionResult = `I'm opening Google Calendar with the details for "${title}" pre-filled for you.`;
+                    const details = `Date: ${date}, Time: ${eventTime}`;
+                    const calendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title as string)}&details=${encodeURIComponent(details)}`;
+                    window.open(calendarUrl, '_blank', 'noopener,noreferrer');
                     break;
-                case 'getWeatherForecast':
+                }
+                case 'getWeatherForecast': {
                     const { location } = fc.args;
-                    actionResult = `The weather in ${location} is currently sunny with a high of 75 degrees.`;
-                    actionDescription = `☀️ Weather forecast requested for ${location}.`;
-                    console.log(`Simulating getting weather:`, fc.args);
+                    actionDescription = `☀️ Opening Google Weather for ${location}.`;
+                    actionResult = `I have opened Google's weather forecast for ${location} in a new tab.`;
+                    const weatherUrl = `https://www.google.com/search?q=weather+in+${encodeURIComponent(location as string)}`;
+                    window.open(weatherUrl, '_blank', 'noopener,noreferrer');
                     break;
-                case 'getDirections':
+                }
+                case 'getDirections': {
                     const { destination, startingPoint } = fc.args;
-                    actionDescription = `🗺️ Navigating to ${destination}${startingPoint ? ` from ${startingPoint}` : ''}.`;
-                    console.log(`Simulating getting directions:`, fc.args);
+                    actionDescription = `🗺️ Opening Google Maps for directions to ${destination}.`;
+                    actionResult = `I've opened Google Maps with directions to ${destination}.`;
+                    const mapsUrl = `https://www.google.com/maps/dir/${startingPoint ? encodeURIComponent(startingPoint as string) : ''}/${encodeURIComponent(destination as string)}`;
+                    window.open(mapsUrl, '_blank', 'noopener,noreferrer');
                     break;
-                case 'playMusic':
+                }
+                case 'playMusic': {
+                    if (!appPermissions['spotify']) {
+                        actionDescription = `❌ Permission denied for Spotify.`;
+                        actionResult = `I don't have permission to play music on Spotify. You can enable this in the settings.`;
+                        break;
+                    }
+
                     const { artist, song, playlist } = fc.args;
-                    let playing = [];
-                    if (song) playing.push(`the song "${song}"`);
-                    if (artist) playing.push(`by the artist ${artist}`);
-                    if (playlist) playing.push(`from the playlist "${playlist}"`);
-                    let playingText = playing.length > 0 ? playing.join(' ') : 'some music';
-                    actionDescription = `🎵 Playing ${playingText}.`;
-                    console.log(`Simulating playing music:`, fc.args);
-                    break;
-                case 'addToList':
-                    const { listName, item } = fc.args;
-                    actionDescription = `📝 Added "${item}" to your ${listName} list.`;
-                    console.log(`Simulating adding to list:`, fc.args);
-                    break;
-                case 'translateText':
-                    const { text, targetLanguage } = fc.args;
-                    actionResult = `The model will provide the translation for "${text}" into ${targetLanguage}.`;
-                    actionDescription = `🌐 Translating "${text}" to ${targetLanguage}.`;
-                    console.log(`Simulating translation:`, fc.args);
-                    break;
-                 case 'launchApp':
-                    const { appName } = fc.args;
-                    const appSchemeMap: Record<string, string> = {
-                        'spotify': 'spotify://',
-                        'twitter': 'twitter://',
-                        'instagram': 'instagram://',
-                        'youtube': 'youtube://',
-                        'whatsapp': 'whatsapp://',
-                        'facebook': 'fb://',
-                        'slack': 'slack://',
-                        'discord': 'discord://',
-                    };
-                    // FIX: The `appName` argument from the function call is of type `unknown`.
-                    // It is cast to a string to allow calling `toLowerCase()`, which is safe
-                    // because the function declaration schema requires it to be a string.
-                    const lowerCaseAppName = (appName as string).toLowerCase();
-                    const urlScheme = appSchemeMap[lowerCaseAppName] || `${lowerCaseAppName.replace(/\s/g, '')}://`;
-                    
-                    actionDescription = `🚀 Launching ${appName}...`;
-                    actionResult = `Attempting to open ${appName}.`;
-                    console.log(`Attempting to launch app: ${appName} with URL scheme: ${urlScheme}`);
-                    window.location.href = urlScheme;
-                    break;
-                case 'makeCall':
-                    const { contact } = fc.args;
-                    actionDescription = `📞 Calling ${contact}...`;
-                    console.log(`Simulating making a call to:`, contact);
-                    if (/^[\d\s+-]+$/.test(contact as string)) {
-                        const phoneNumber = (contact as string).replace(/\D/g, '');
-                        window.location.href = `tel:${phoneNumber}`;
-                        actionResult = `Calling ${contact}.`;
+                    let query = '';
+                    if (song) query += `${song} `;
+                    if (artist) query += `${artist} `;
+                    if (playlist) query += `playlist ${playlist} `;
+                    query = query.trim();
+
+                    if (!query) {
+                        actionDescription = `🎵 Opening Spotify.`;
+                        actionResult = `Opening Spotify for you.`;
+                        window.open('https://open.spotify.com', '_blank', 'noopener,noreferrer');
                     } else {
-                        actionResult = `I can only call phone numbers directly. I'll try to find ${contact} in your contacts.`;
+                        actionDescription = `🎵 Searching Spotify for "${query}".`;
+                        actionResult = `Searching for "${query}" on Spotify.`;
+                        const spotifySearchUrl = `https://open.spotify.com/search/${encodeURIComponent(query)}`;
+                        window.open(spotifySearchUrl, '_blank', 'noopener,noreferrer');
                     }
                     break;
-                case 'setTimer':
+                }
+                case 'addToList':
+                    const { listName, item } = fc.args;
+                    actionDescription = `📝 Added "${item}" to your ${listName} list. (Simulation)`;
+                    actionResult = `I've noted to add "${item}" to your ${listName} list. In a full app, this would sync with a to-do list service.`;
+                    break;
+                case 'translateText': {
+                    const { text, targetLanguage } = fc.args;
+                    actionDescription = `🌐 Opening Google Translate for "${text}" to ${targetLanguage}.`;
+                    actionResult = `I'm opening Google Translate with your text ready to be translated.`;
+                    const translateUrl = `https://translate.google.com/?sl=auto&tl=${encodeURIComponent(targetLanguage as string)}&text=${encodeURIComponent(text as string)}&op=translate`;
+                    window.open(translateUrl, '_blank', 'noopener,noreferrer');
+                    break;
+                }
+                 case 'launchApp': {
+                    const { appName } = fc.args;
+                    const lowerCaseAppName = (appName as string).toLowerCase().trim();
+                    const targetApp = SUPPORTED_APPS.find(app => lowerCaseAppName.includes(app.id));
+
+                    if (!targetApp || !appPermissions[targetApp.id]) {
+                        const appNameToDisplay = targetApp ? targetApp.name : appName;
+                        actionDescription = `❌ Permission denied for ${appNameToDisplay}.`;
+                        actionResult = `I don't have permission to launch ${appNameToDisplay}. You can enable this in the settings.`;
+                        break;
+                    }
+
+                    actionDescription = `🚀 Launching ${targetApp.name}...`;
+
+                    if (isMobile) {
+                        const appSchemeMap: Record<string, string> = {
+                            'spotify': 'spotify://', 'twitter': 'twitter://', 'instagram': 'instagram://',
+                            'youtube': 'youtube://', 'whatsapp': 'whatsapp://', 'facebook': 'fb://',
+                            'slack': 'slack://', 'discord': 'discord://', 'chrome': 'googlechrome://'
+                        };
+                        const urlScheme = appSchemeMap[targetApp.id] || `${targetApp.id.replace(/\s/g, '')}://`;
+                        actionResult = `Attempting to open ${targetApp.name}.`;
+                        setTimeout(() => { window.location.href = urlScheme; }, 500);
+                    } else {
+                        const webLinkMap: Record<string, string> = {
+                            'spotify': 'https://open.spotify.com', 'twitter': 'https://twitter.com',
+                            'instagram': 'https://instagram.com', 'youtube': 'https://youtube.com',
+                            'whatsapp': 'https://web.whatsapp.com', 'facebook': 'https://facebook.com',
+                            'slack': 'https://app.slack.com', 'discord': 'https://discord.com/app',
+                            'chrome': 'https://google.com'
+                        };
+                        const webLink = webLinkMap[targetApp.id];
+                        if (webLink) {
+                            actionResult = `Opened ${targetApp.name} in a new browser tab.`;
+                            window.open(webLink, '_blank', 'noopener,noreferrer');
+                        } else {
+                            actionDescription = `❌ Opening "${targetApp.name}" is not configured for this device.`;
+                            actionResult = `I can't open "${targetApp.name}" on a desktop or tablet.`;
+                        }
+                    }
+                    break;
+                }
+                case 'makeCall':
+                    const { contact } = fc.args;
+                    if (isMobile) {
+                        actionDescription = `📞 Calling ${contact}...`;
+                        if (/^[\d\s+-]+$/.test(contact as string)) {
+                            const phoneNumber = (contact as string).replace(/\D/g, '');
+                            actionResult = `Calling ${contact}.`;
+                            setTimeout(() => { window.location.href = `tel:${phoneNumber}`; }, 500);
+                        } else {
+                            actionResult = `I can only call phone numbers directly. Please provide a full number.`;
+                            actionDescription = `❌ Could not call ${contact}. Please provide a valid phone number.`;
+                        }
+                    } else {
+                        actionDescription = `❌ Calling is only available on mobile devices.`;
+                        actionResult = `I cannot make phone calls from this device.`;
+                    }
+                    break;
+                case 'setTimer': {
                     const { duration, label: timerLabel } = fc.args;
-                    actionDescription = `⏳ Timer set for ${duration}${timerLabel ? ` with label "${timerLabel}"` : ''}.`;
-                    console.log(`Simulating setting a timer:`, fc.args);
+                    const query = `set a timer for ${duration}${timerLabel ? ` called ${timerLabel}` : ''}`;
+                    actionDescription = `⏳ Opening Google to set timer for ${duration}.`;
+                    actionResult = `I have opened a Google search for you to start the timer.`;
+                    window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, '_blank', 'noopener,noreferrer');
                     break;
-                case 'getCalendarEvents':
+                }
+                case 'getCalendarEvents': {
                     const { date: eventDate = 'today' } = fc.args;
-                    actionDescription = `🗓️ Checking your calendar for ${eventDate}.`;
-                    actionResult = `You have two events for ${eventDate}: a 'Team Meeting' at 10 AM and 'Project Deadline' at 5 PM.`;
-                    console.log(`Simulating getting calendar events:`, fc.args);
+                    actionDescription = `🗓️ Opening Google Calendar to view events for ${eventDate}.`;
+                    actionResult = `I can't view your calendar events directly for security reasons, but I have opened Google Calendar for you to check.`;
+                    window.open('https://calendar.google.com/', '_blank', 'noopener,noreferrer');
                     break;
-                case 'playVideo':
+                }
+                case 'playVideo': {
                     const { title: videoTitle, platform } = fc.args;
-                    actionDescription = `🎬 Playing "${videoTitle}"${platform ? ` on ${platform}` : ''}.`;
-                    console.log(`Simulating playing video:`, fc.args);
+                    const lowerCasePlatform = (platform as string || 'youtube').toLowerCase();
+                    
+                    if (lowerCasePlatform.includes('youtube')) {
+                        if (!appPermissions['youtube']) {
+                             actionDescription = `❌ Permission denied for YouTube.`;
+                             actionResult = `I don't have permission to play videos on YouTube. You can enable this in the settings.`;
+                             break;
+                        }
+                        
+                        actionDescription = `🎬 Searching YouTube for "${videoTitle}".`;
+                        actionResult = `Searching for "${videoTitle}" on YouTube.`;
+                        const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(videoTitle as string)}`;
+                        window.open(youtubeSearchUrl, '_blank', 'noopener,noreferrer');
+
+                    } else {
+                        actionDescription = `🎬 Playing "${videoTitle}"${platform ? ` on ${platform}` : ''}. (simulation)`;
+                        actionResult = `I can't play videos from ${platform} yet, but I've noted your request.`;
+                        console.log(`Simulating playing video:`, fc.args);
+                    }
                     break;
+                }
                 case 'controlDeviceSettings':
                     const { setting, value } = fc.args;
-                    actionDescription = `⚙️ Setting ${setting} to ${value}.`;
-                    console.log(`Simulating device setting change:`, fc.args);
+                    actionDescription = `⚙️ Setting ${setting} to ${value}. (Simulation)`;
+                    actionResult = `I cannot change device settings from a web browser. This action is simulated.`;
                     break;
                 default:
                     actionDescription = `❓ Unknown action attempted: ${fc.name}`;
@@ -461,14 +569,23 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey, activation
     }
     
     if (message.serverContent?.interrupted) {
+      if (transitionToListeningTimeoutRef.current) {
+        clearTimeout(transitionToListeningTimeoutRef.current);
+        transitionToListeningTimeoutRef.current = null;
+      }
       outputSourcesRef.current.forEach(source => source.stop());
       outputSourcesRef.current.clear();
       nextStartTimeRef.current = 0;
       setState('listening');
     }
-  }, []);
+  }, [isMobile, appPermissions]);
 
   const stopConversation = useCallback(() => {
+    if (transitionToListeningTimeoutRef.current) {
+        clearTimeout(transitionToListeningTimeoutRef.current);
+        transitionToListeningTimeoutRef.current = null;
+    }
+
     sessionPromiseRef.current?.then(session => session.close());
     sessionPromiseRef.current = null;
     
@@ -657,7 +774,7 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey, activation
           {state === 'idle' 
            ? activationMode === 'automatic'
              ? "Assistant is activating. Grant microphone permission when prompted."
-             : "Try asking: 'Call 9876543210', 'Set a timer for 5 minutes', or 'Turn Wi-Fi on'"
+             : "Try asking: 'Remind me to call mom', 'What's the weather in Kathmandu?', or 'Set a timer for 5 minutes'"
            : 'तपाईंको कुराकानी प्रगतिमा छ।'}
         </p>
 
@@ -689,7 +806,7 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey, activation
              {transcription.user || (state === 'listening' ? '...' : '')}
            </p>
            <p className="text-lg text-white mt-4">
-             <span className="font-semibold text-purple-400">Brom: </span>
+             <span className="font-semibold text-purple-400">Echo: </span>
              {transcription.model}
            </p>
         </div>
@@ -719,7 +836,7 @@ export const AssistantView: React.FC<AssistantViewProps> = ({ apiKey, activation
             `}
           >
             {buttonState.icon === 'mic' && <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>}
-            {buttonState.icon === 'stop' && <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" ry="2" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+            {buttonState.icon === 'stop' && <svg xmlns="http://www.w.org/2000/svg" className="h-10 w-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" ry="2" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
             {buttonState.icon === 'loader' && <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin"></div>}
           </button>
         </div>

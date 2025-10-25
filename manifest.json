@@ -1,7 +1,7 @@
 {
-  "short_name": "Brom AI",
-  "name": "Brom AI",
-  "description": "A sophisticated, multi-modal AI web application for Nepal, powered by Google's Gemini API. It features a voice assistant (Brom), chatbot, and other tools tailored for Nepali users with real-time information.",
+  "short_name": "Echo AI",
+  "name": "Echo AI Suite",
+  "description": "A sophisticated, multi-modal AI web application for Nepal, powered by Google's Gemini API. It features a voice assistant (Echo), chatbot, and other tools tailored for Nepali users with real-time information.",
   "icons": [
     {
       "src": "/icon-192x192.png",

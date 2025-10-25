@@ -258,22 +258,47 @@ export const ChatbotView: React.FC<ChatbotViewProps> = ({ apiKey }) => {
               {msg.role === 'model' && msg.text && !msg.isError && (
                   <button onClick={() => handleSpeak(msg.text, msg.id)} disabled={isSpeaking && isSpeaking !== msg.id} className="text-cyan-300 hover:text-cyan-100 disabled:text-gray-500 mt-2">
                       {isSpeaking === msg.id ? (
-                        <svg className="w-5 h-5 animate-pulse" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4 18h3V6H4v12zm5 0h3V6H9v12zm5 0h3V6h-3v12zm5 0h3V6h-3v12z"/></svg>
+                        <svg className="w-5 h-5 animate-pulse" xmlns="http://www.w.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4 18h3V6H4v12zm5 0h3V6H9v12zm5 0h3V6h-3v12zm5 0h3V6h-3v12z"/></svg>
                       ) : (
                         <svg className="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" /></svg>
                       )}
                   </button>
               )}
               {msg.sources && msg.sources.length > 0 && (
-                <div className="mt-3 pt-2 border-t border-gray-600">
-                  <h4 className="text-xs font-semibold text-gray-300 mb-1">Sources:</h4>
-                  <ul className="text-xs space-y-1">
+                <div className="mt-3 pt-3 border-t border-gray-600">
+                  <h4 className="text-xs font-semibold text-gray-300 mb-2">Sources:</h4>
+                  <div className="flex flex-wrap gap-2">
                     {msg.sources.map((source, i) => {
-                      if (source.web) return <li key={`w${i}`}><a href={source.web.uri} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline break-all">{i + 1}. [Web] {source.web.title}</a></li>
-                      if (source.maps) return <li key={`m${i}`}><a href={source.maps.uri} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline break-all">{i + 1}. [Map] {source.maps.title}</a></li>
-                      return null;
+                      const sourceInfo = source.web || source.maps;
+                      if (!sourceInfo?.uri || !sourceInfo.title) return null;
+
+                      const isWeb = !!source.web;
+                      const icon = isWeb ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9V3m0 18a9 9 0 009-9m-9 9a9 9 0 00-9-9" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657l-4.243 4.243a2 2 0 01-2.828 0l-4.242-4.242a8 8 0 1111.312 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                      );
+
+                      return (
+                        <a
+                          key={`source-${i}`}
+                          href={sourceInfo.uri}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-x-2 bg-gray-800/60 hover:bg-gray-800 transition-colors p-2 rounded-lg text-sm text-cyan-200 shadow-sm border border-gray-600/50"
+                          title={sourceInfo.title}
+                        >
+                          {icon}
+                          <span className="truncate">{sourceInfo.title}</span>
+                        </a>
+                      );
                     })}
-                  </ul>
+                  </div>
                 </div>
               )}
             </div>

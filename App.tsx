@@ -3,6 +3,7 @@ import { BottomNav } from './components/layout/BottomNav';
 import { AssistantView } from './components/features/assistant/AssistantView';
 import { ChatbotView } from './components/features/chatbot/ChatbotView';
 import { VideoAnalyzerView } from './components/features/videoAnalyzer/VideoAnalyzerView';
+import { NewsView } from './components/features/news/NewsView';
 import SettingsView, { AppPermissions, SUPPORTED_APPS } from './components/features/settings/SettingsView';
 import type { Feature } from './types';
 import { FEATURES } from './constants';
@@ -43,7 +44,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
         <div className="p-6 space-y-6">
           <div>
             <label className="text-lg font-medium text-gray-200">Assistant Activation</label>
-            <p className="text-sm text-gray-400 mt-1 mb-3">Choose how to start a conversation with Brom.</p>
+            <p className="text-sm text-gray-400 mt-1 mb-3">Choose how to start a conversation with Echo.</p>
             <fieldset className="space-y-3">
               <div className="flex items-center">
                 <input id="push-to-talk" name="activation-mode" type="radio" value="push-to-talk" checked={settings.assistantActivation === 'push-to-talk'} onChange={handleActivationChange} className="h-4 w-4 text-cyan-600 bg-gray-700 border-gray-600 focus:ring-cyan-500"/>
@@ -119,11 +120,12 @@ const App: React.FC = () => {
 
   const renderFeature = () => {
     switch (activeFeature.id) {
-      case 'assistant': return <AssistantView apiKey={API_KEY} activationMode={settings.assistantActivation} />;
+      case 'assistant': return <AssistantView apiKey={API_KEY} activationMode={settings.assistantActivation} appPermissions={appPermissions} />;
       case 'chatbot': return <ChatbotView apiKey={API_KEY} />;
       case 'video-analyzer': return <VideoAnalyzerView apiKey={API_KEY} />;
+      case 'news': return <NewsView apiKey={API_KEY} />;
       case 'settings': return <SettingsView appPermissions={appPermissions} onPermissionsChange={setAppPermissions} />;
-      default: return <AssistantView apiKey={API_KEY} activationMode={settings.assistantActivation} />;
+      default: return <AssistantView apiKey={API_KEY} activationMode={settings.assistantActivation} appPermissions={appPermissions} />;
     }
   };
 
@@ -135,7 +137,7 @@ const App: React.FC = () => {
             <svg className="w-8 h-8 text-cyan-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25z" />
             </svg>
-            <h1 className="text-xl font-bold text-white tracking-tight">Brom AI</h1>
+            <h1 className="text-xl font-bold text-white tracking-tight">Echo AI Suite</h1>
           </div>
           <div className="flex items-center space-x-4">
             {showInstallPrompt && (
